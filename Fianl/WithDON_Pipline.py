@@ -1,10 +1,6 @@
 # ================================================================
-#  5-RUN MLE POD PIPELINE (No Bootstrap)
-#  MMD-GAN (Origin) | MemAE | MK-MMD (가속 OC-SVM)
-#
-#  방법론: 각 모델 5회 반복 학습 → 케이스별 탐지율(DR) → 5회 평균
-#          → Hit/Miss MLE POD 피팅 (평균 곡선만, LCB 없음)
-#  데이터: DeepONet 합성(Synthetic) + 실제(Real) 손상 데이터
+#  10-RUN MLE POD PIPELINE (No Bootstrap)
+#  MMD-GAN (Origin) | MemAE | MK-MMD (가속 OC-SVM 정밀도 향상형)
 # ================================================================
 
 import os
@@ -15,7 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import matplotlib
-matplotlib.use("Agg")
+matplotlib.use("Agg")  # GUI 팝업 방지
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler, RobustScaler
 from sklearn.decomposition import PCA
@@ -36,7 +32,7 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 DIR_B_RAW      = r"E:\2ndstructuredata\raw data"
 FILE_B         = "healthyclean.txt"
 SYNTH_DATA_DIR = r"E:\2ndstructuredata\Code_9_Final_Export\Synthetic_B_Data"
-SAVE_DIR       = r"E:\git\Master_Thesis\Fianl"
+SAVE_DIR       = r"E:\2ndstructuredata\Unified_5Run_MLE_POD"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 WINDOW_SIZE        = 128
@@ -45,22 +41,22 @@ DAMAGE_CASES_B     = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48]
 SYNTHETIC_DI_STEPS = np.round(np.arange(0.00, 1.01, 0.02), 2)
 device             = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-N_RUNS = 5
+# [변경] MMD-GAN 등을 포함한 전체 파이프라인의 반복 횟수를 10회로 변경
+N_RUNS = 10 
 SEED   = 42
 
 x_range_r = np.linspace(0, 50, 200)
 x_range_s = np.linspace(0, 100, 200)
 
 print("=" * 70)
-print(f"  5-RUN MLE POD PIPELINE (No Bootstrap)  |  Device: {device}")
+print(f"  10-RUN MLE POD PIPELINE | Device: {device}")
 print("=" * 70)
 
 
 # ================================================================
-# [1] Hit/Miss MLE POD (5-run DR 평균, LCB 없음)
+# [1] Hit/Miss MLE POD
 # ================================================================
 def fit_hit_miss_mle(a_vals, dr_vals):
-    """이항 교차엔트로피 최소화로 정규-CDF (mu, sigma) 추정."""
     def neg_log_lik(p):
         mu, sigma = p
         prob = np.clip(norm.cdf(a_vals, loc=mu, scale=sigma), 1e-10, 1 - 1e-10)
@@ -123,14 +119,14 @@ def load_damage_ganae(path, is_synth=False):
             norm_data = norm_data[np.random.choice(ns, NUM_SAMPLES_GANAE, replace=False)]
         return norm_data
     except Exception as e:
-        print(f"   Error loading {path}: {e}")
+        print(f"    Error loading {path}: {e}")
         return None
 
 load_health_data_ganae()
 
 
 # ================================================================
-# [3] MMD-GAN (Origin) — 5-run DR
+# [3] MMD-GAN (Origin) — 10-run DR
 # ================================================================
 GAN_N1, GAN_N2  = 35, 19
 GAN_KERNEL_SIZE = 6
@@ -237,7 +233,7 @@ def run_gan():
 
 
 # ================================================================
-# [4] MemAE — 5-run DR
+# [4] MemAE — 10-run DR
 # ================================================================
 AE_N_FEAT, AE_KERNEL, AE_STRIDE, AE_ALPHA = 19, 6, 3, 0.3799
 AE_LATENT  = 64
@@ -353,11 +349,11 @@ def run_memae():
 
 
 # ================================================================
-# [5] MK-MMD (가속 OC-SVM) — 5-run DR
+# [5] MK-MMD (가속 OC-SVM 정밀도 향상 커스텀) — 10-run DR
 # ================================================================
 SVM_NUM_SAMPLES  = 1000
 SVM_PFA          = 0.05
-SVM_OPTUNA_TRIAL = 40
+SVM_OPTUNA_TRIAL = 50  # 탐색 횟수를 늘려 더 정밀한 파라미터 유도
 MAX_REF          = 400
 
 def _windowize_svm(data):
@@ -382,7 +378,7 @@ def load_data_svm(path, is_synth=False):
             windows = windows[np.random.choice(ns, SVM_NUM_SAMPLES, replace=False)]
         return windows
     except Exception as e:
-        print(f"   Error: {e}")
+        print(f"    Error: {e}")
         return None
 
 def extract_features_svm(data):
@@ -450,30 +446,45 @@ def run_svm():
         if d is not None:
             feat_cache[('s', di)] = extract_features_svm(d)
 
-    print("  [MK-MMD] Optuna 최적화 (1회)...")
+    print("  [MK-MMD] Optuna 정밀도 향상 다중 타겟 최적화...")
     np.random.seed(42); sh = all_h.copy(); np.random.shuffle(sh)
-    si = int(len(sh) * 0.7); tr0, vl0 = sh[:si], sh[si:]
+    si  = int(len(sh) * 0.7); tr0, vl0 = sh[:si], sh[si:]
     tr0_f, vl0_f = extract_features_svm(tr0), extract_features_svm(vl0)
-    tgt = load_data_svm(os.path.join(SYNTH_DATA_DIR, "Synthetic_B_DI_0.50.txt"), is_synth=True)
-    if tgt is None:
-        tgt = load_data_svm(os.path.join(DIR_B_RAW, "D3_48_1.txt"))
-    tgt_f = extract_features_svm(tgt)
+    
+    # [정밀도 개선] 단일 지점이 아닌 미세(0.20), 중간(0.50), 중증(0.80) 손상을 다차원 평가하도록 다변화
+    tgt_low  = extract_features_svm(load_data_svm(os.path.join(SYNTH_DATA_DIR, "Synthetic_B_DI_0.20.txt"), is_synth=True))
+    tgt_mid  = extract_features_svm(load_data_svm(os.path.join(SYNTH_DATA_DIR, "Synthetic_B_DI_0.50.txt"), is_synth=True))
+    tgt_high = extract_features_svm(load_data_svm(os.path.join(SYNTH_DATA_DIR, "Synthetic_B_DI_0.80.txt"), is_synth=True))
+    
     sc0 = RobustScaler().fit(tr0_f)
-    trs, vls, tgs = sc0.transform(tr0_f), sc0.transform(vl0_f), sc0.transform(tgt_f)
+    trs, vls = sc0.transform(tr0_f), sc0.transform(vl0_f)
+    tgs_l, tgs_m, tgs_h = sc0.transform(tgt_low), sc0.transform(tgt_mid), sc0.transform(tgt_high)
 
     def objective(trial):
-        pc = trial.suggest_int('pca_comp', 15, 60)
-        ck = trial.suggest_int('chunk_size', 20, 80, step=10)
-        gm = trial.suggest_float('gamma_mult', 0.01, 10.0, log=True)
+        pc = trial.suggest_int('pca_comp', 20, 70)  # 탐색 상한선 상향으로 표현력 확대
+        ck = trial.suggest_int('chunk_size', 15, 60, step=5) # 미세 손상 해상도를 높이기 위해 단위 축소
+        gm = trial.suggest_float('gamma_mult', 0.005, 20.0, log=True)
+        
         pca = PCA(pc, random_state=42)
-        tp, vp, gp = pca.fit_transform(trs), pca.transform(vls), pca.transform(tgs)
+        tp, vp = pca.fit_transform(trs), pca.transform(vls)
+        gp_l, gp_m, gp_h = pca.transform(tgs_l), pca.transform(tgs_m), pca.transform(tgs_h)
+        
         bg = (1.0 / (np.median(pdist(tp, 'sqeuclidean')) + 1e-10)) * gm
         rc = precompute_ref(tp, bg)
+        
         vS = mmd_scores_fast(vp, rc, ck, max(1, ck // 2))
-        tS = mmd_scores_fast(gp, rc, ck, max(1, ck // 2))
-        if len(vS) < 5 or len(tS) < 5:
+        sL = mmd_scores_fast(gp_l, rc, ck, max(1, ck // 2))
+        sM = mmd_scores_fast(gp_m, rc, ck, max(1, ck // 2))
+        sH = mmd_scores_fast(gp_h, rc, ck, max(1, ck // 2))
+        
+        if len(vS) < 5 or len(sL) < 5 or len(sM) < 5 or len(sH) < 5:
             return -999.0
-        return (tS.mean() - vS.mean()) / (vS.std() + 1e-6)
+            
+        # [정밀도 개선 지표] 세 가지 손상 밀도 전체에서 정상 대조군 대비 분리도(정밀도)의 평균값을 극대화
+        score_l = (sL.mean() - vS.mean()) / (vS.std() + 1e-6)
+        score_m = (sM.mean() - vS.mean()) / (vS.std() + 1e-6)
+        score_h = (sH.mean() - vS.mean()) / (vS.std() + 1e-6)
+        return (score_l + score_m + score_h) / 3.0
 
     study = optuna.create_study(direction='maximize')
     with tqdm(total=SVM_OPTUNA_TRIAL, desc="    Optuna") as pbar:
@@ -566,7 +577,10 @@ draw_panel(axes[1], x_range_s,
 plt.tight_layout()
 fig_path = os.path.join(SAVE_DIR, "MLE_POD_Comparison.png")
 plt.savefig(fig_path, dpi=300)
-plt.close()
+
+# [추가 보완] 백그라운드 프로세스 간섭 및 GUI 완전 차단
+plt.clf()
+plt.close('all')
 
 print("\n" + "=" * 70)
 print("  MLE POD 요약")
