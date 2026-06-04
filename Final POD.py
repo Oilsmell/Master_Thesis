@@ -83,8 +83,8 @@ def fit_hit_miss_mle(a_vals, dr_vals):
 def pod_from_runs(dr_runs, a_keys, a_vals, x_range):
     a_vals = np.asarray(a_vals, dtype=float)
     avg_dr = np.array([np.mean(dr_runs[k]) for k in a_keys])
-    params, ok = fit_hit_miss_mle(a_vals, avg_dr)`  ```
-    mean_pod   = norm.cdf(x_range, loc=params[0], scale=params[1]) if ok else np.zeros_like(x_range)`   `
+    params, ok = fit_hit_miss_mle(a_vals, avg_dr)
+    mean_pod   = norm.cdf(x_range, loc=params[0], scale=params[1]) if ok else np.zeros_like(x_range)
 
     # 95% Lower Confidence Bound (LCB) 산출 안정화
     n = len(a_keys)
