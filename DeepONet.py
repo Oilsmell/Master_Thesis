@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Case A1 단일 형상 검증 및 구조물 B 합성 데이터(51개 스텝) 대량 생성
-- 목표: VS Code 환경 내 파이프라인 구동 테스트 및 촘촘한 합성 데이터 추출
-- 출력: 51개 텍스트 파일 저장 및 Growth Map 이미지 백그라운드 저장
+Case A1 ~ Case A8 자동화 파이프라인
+- 목표: 리스트에 정의된 모든 Case 폴더를 순회하며 DeepONet 학습 및 합성 데이터 51개 자동 생성
 """
 
 import numpy as np
@@ -16,42 +15,10 @@ import matplotlib
 matplotlib.use('Agg') # 플롯을 화면에 띄우지 않고 백그라운드에서 처리
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
-import pickle
+import gc
 
 # =========================================================
-# 1. Configuration (경로 및 환경 설정)
-# =========================================================
-class Config:
-    DIR_A = r"E:\git\benchmarktu1402-master\benchmarktu1402-master\Case A1"
-    SAVE_DIR = r"E:\git\benchmarktu1402-master\benchmarktu1402-master\Case A1"
-    
-    DIR_B = r"E:\2ndstructuredata\raw data" 
-    FILE_B_H = "healthyclean.txt"
-    
-    WINDOW_SIZE = 128
-    LATENT_DIM = 8
-    SELECTED_NODES = [3, 21, 39, 57, 63, 81, 99, 117]
-    
-    DAMAGE_CASES_A = list(range(1, 11))
-    
-    AE_EPOCHS = 500
-    DON_EPOCHS = 500
-    BATCH_SIZE = 128
-    LR = 0.001
-    
-    LAMBDA_MMD = 0.3
-    RESIDUAL_SCALE = 0.9 
-    
-    # 0.00부터 1.00까지 0.02 간격으로 51개 스텝 생성
-    SYNTHETIC_DI_STEPS = np.arange(0.0, 1.01, 0.02) 
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-cfg = Config()
-if not os.path.exists(cfg.SAVE_DIR): os.makedirs(cfg.SAVE_DIR)
-
-# =========================================================
-# 2. Models & MMD Functions
+# 1. Models & MMD Functions (전역 선언)
 # =========================================================
 def rbf_kernel(x, y, gamma=1.0):
     x = x.unsqueeze(1); y = y.unsqueeze(0)
@@ -111,59 +78,93 @@ class DeepONet(nn.Module):
         return torch.matmul(B, T.T) + self.bias
 
 # =========================================================
-# 3. Utility Functions
+# 2. Main Automation Pipeline
 # =========================================================
-def load_data(is_A=False, case_num=None):
-    try:
-        if is_A:
-            if case_num is None:
-                path = os.path.join(cfg.DIR_A, "Case A1_H_accelerations.dat")
+def run_pipeline(case_name):
+    print(f"\n{'='*60}")
+    print(f" 🚀 Starting Automated Pipeline for: {case_name}")
+    print(f"{'='*60}")
+    
+    # 해당 Case에 맞춘 동적 환경 설정
+    class Config:
+        DIR_A = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\{case_name}"
+        SAVE_DIR = DIR_A
+        DIR_B = r"E:\2ndstructuredata\raw data" 
+        FILE_B_H = "healthyclean.txt"
+        
+        WINDOW_SIZE = 128
+        LATENT_DIM = 8
+        SELECTED_NODES = [3, 21, 39, 57, 63, 81, 99, 117]
+        DAMAGE_CASES_A = list(range(1, 11))
+        
+        AE_EPOCHS = 500
+        DON_EPOCHS = 500
+        BATCH_SIZE = 128
+        LR = 0.001
+        
+        LAMBDA_MMD = 0.3
+        RESIDUAL_SCALE = 0.9 
+        SYNTHETIC_DI_STEPS = np.arange(0.0, 1.01, 0.02) 
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    cfg = Config()
+    if not os.path.exists(cfg.SAVE_DIR): os.makedirs(cfg.SAVE_DIR)
+
+    # 유틸리티 함수: 파일명을 case_name에 맞춰 동적으로 불러옴
+    def load_data(is_A=False, case_num=None):
+        try:
+            if is_A:
+                if case_num is None:
+                    path = os.path.join(cfg.DIR_A, f"{case_name}_H_accelerations.dat")
+                else:
+                    path = os.path.join(cfg.DIR_A, f"{case_name}_D{case_num}_accelerations.dat")
+                data = np.loadtxt(path)
+                data = data[:, cfg.SELECTED_NODES].T if data.shape[0] > data.shape[1] else data[cfg.SELECTED_NODES, :]
             else:
-                path = os.path.join(cfg.DIR_A, f"Case A1_D{case_num}_accelerations.dat")
-            data = np.loadtxt(path)
-            data = data[:, cfg.SELECTED_NODES].T if data.shape[0] > data.shape[1] else data[cfg.SELECTED_NODES, :]
-        else:
-            if case_num is None:
-                path = os.path.join(cfg.DIR_B, cfg.FILE_B_H)
-            else:
-                path = os.path.join(cfg.DIR_B, f"D3_{case_num}_1.txt")
-            raw = [float(line.split()[1]) for line in open(path, 'r') if len(line.split()) >= 2]
-            data = np.array(raw, dtype=np.float32).reshape(8, -1)
-            
-        n_samples = data.shape[1] // cfg.WINDOW_SIZE
-        return data[:, :n_samples * cfg.WINDOW_SIZE].astype(np.float32)
-    except Exception as e:
-        print(f"Error loading (is_A={is_A}, case={case_num}): {e}")
-        return None
+                if case_num is None:
+                    path = os.path.join(cfg.DIR_B, cfg.FILE_B_H)
+                else:
+                    path = os.path.join(cfg.DIR_B, f"D3_{case_num}_1.txt")
+                raw = [float(line.split()[1]) for line in open(path, 'r') if len(line.split()) >= 2]
+                data = np.array(raw, dtype=np.float32).reshape(8, -1)
+                
+            n_samples = data.shape[1] // cfg.WINDOW_SIZE
+            return data[:, :n_samples * cfg.WINDOW_SIZE].astype(np.float32)
+        except Exception as e:
+            print(f"Error loading (is_A={is_A}, case={case_num} in {case_name}): {e}")
+            return None
 
-def calc_di(healthy, damaged):
-    window = 2000
-    n_wins = min(healthy.shape[1], damaged.shape[1]) // window
-    if n_wins < 1: n_wins = 1; window = min(healthy.shape[1], damaged.shape[1])
-    di_list = [abs(np.percentile(kurtosis(healthy[i, :n_wins*window].reshape(n_wins, window), axis=1, fisher=False), 95) - 
-                   np.percentile(kurtosis(damaged[i, :n_wins*window].reshape(n_wins, window), axis=1, fisher=False), 95)) 
-               for i in range(8)]
-    return np.mean(di_list)
+    def calc_di(healthy, damaged):
+        window = 2000
+        n_wins = min(healthy.shape[1], damaged.shape[1]) // window
+        if n_wins < 1: n_wins = 1; window = min(healthy.shape[1], damaged.shape[1])
+        di_list = [abs(np.percentile(kurtosis(healthy[i, :n_wins*window].reshape(n_wins, window), axis=1, fisher=False), 95) - 
+                       np.percentile(kurtosis(damaged[i, :n_wins*window].reshape(n_wins, window), axis=1, fisher=False), 95)) 
+                   for i in range(8)]
+        return np.mean(di_list)
 
-def reshape_for_scaler(data):
-    ns = data.shape[1] // cfg.WINDOW_SIZE
-    return data.reshape(8, ns, cfg.WINDOW_SIZE).transpose(1, 0, 2).reshape(ns, -1), ns
+    def reshape_for_scaler(data):
+        ns = data.shape[1] // cfg.WINDOW_SIZE
+        return data.reshape(8, ns, cfg.WINDOW_SIZE).transpose(1, 0, 2).reshape(ns, -1), ns
 
-# =========================================================
-# 4. Main Validation Logic
-# =========================================================
-def main():
-    log_file_path = os.path.join(cfg.SAVE_DIR, "Validation_Log_CaseA1.txt")
-    log_file = open(log_file_path, "w")
+    # 검증 로직 시작
+    log_file_path = os.path.join(cfg.SAVE_DIR, f"Validation_Log_{case_name}.txt")
+    log_file = open(log_file_path, "w", encoding="utf-8")
     
     def log_print(msg):
         print(msg)
         log_file.write(msg + "\n")
 
-    log_print("=== Phase 1: Data Loading & Normalization (Case A1) ===")
+    log_print(f"=== Phase 1: Data Loading & Normalization ({case_name}) ===")
     raw_h_A = load_data(is_A=True)
     raw_h_B = load_data(is_A=False)
     
+    # 데이터가 없으면 루프 스킵 (에러 방지)
+    if raw_h_A is None or raw_h_B is None:
+        log_print(f"❌ {case_name}의 데이터를 불러올 수 없어 건너뜁니다.")
+        log_file.close()
+        return
+
     reshaped_h_A, ns_A = reshape_for_scaler(raw_h_A)
     reshaped_h_B, ns_B = reshape_for_scaler(raw_h_B)
     
@@ -207,22 +208,27 @@ def main():
         z_A = ae.encoder(torch.FloatTensor(norm_h_A).to(cfg.device)).cpu().numpy()
         z_B = ae.encoder(torch.FloatTensor(norm_h_B).to(cfg.device)).cpu().numpy()
 
-    log_print("\n=== Phase 3: DeepONet Residual Training (Case A1 D1~10) ===")
+    log_print(f"\n=== Phase 3: DeepONet Residual Training ({case_name} D1~10) ===")
     dis_A_raw = []
     for c in cfg.DAMAGE_CASES_A:
         raw_d = load_data(is_A=True, case_num=c)
-        dis_A_raw.append(calc_di(raw_h_A, raw_d))
-        
+        if raw_d is not None:
+            dis_A_raw.append(calc_di(raw_h_A, raw_d))
+        else:
+            dis_A_raw.append(0) # 예외 처리
+            
     min_di_A, max_di_A = min(dis_A_raw), max(dis_A_raw)
     
     X_branch, Y_target = [], []
     for i, c in enumerate(cfg.DAMAGE_CASES_A):
         raw_d = load_data(is_A=True, case_num=c)
+        if raw_d is None: continue
+        
         reshaped_d, _ = reshape_for_scaler(raw_d)
         norm_d = scaler_A.transform(reshaped_d)
         
         target_res = (norm_d - norm_h_A) * cfg.RESIDUAL_SCALE 
-        di_norm = (dis_A_raw[i] - min_di_A) / (max_di_A - min_di_A)
+        di_norm = (dis_A_raw[i] - min_di_A) / ((max_di_A - min_di_A) + 1e-8)
         
         b_in = np.hstack([z_A, np.full((ns_A, 1), di_norm)])
         X_branch.append(b_in)
@@ -253,7 +259,7 @@ def main():
         if (epoch+1) % 100 == 0: 
             log_print(f"   DeepONet Epoch {epoch+1}/{cfg.DON_EPOCHS} | Loss: {total_loss/len(loader_don):.6f}")
 
-    log_print("\n=== Phase 4: Generate DENSE Synthetic Data (51 Steps) ===")
+    log_print(f"\n=== Phase 4: Generate DENSE Synthetic Data (51 Steps for {case_name}) ===")
     
     synth_dir = os.path.join(cfg.SAVE_DIR, "Synthetic_B_Data")
     if not os.path.exists(synth_dir): os.makedirs(synth_dir)
@@ -274,33 +280,46 @@ def main():
         gen_dis_B_dense.append(gen_di)
         log_print(f"Input DI: {di_norm:<4.2f} | Generated Real DI: {gen_di:.6f}")
         
-        # 51개 텍스트 파일 저장
         file_name = f"Synthetic_B_DI_{di_norm:.2f}.txt"
         save_path = os.path.join(synth_dir, file_name)
         np.savetxt(save_path, gen_data.T, fmt='%.6e', delimiter='\t')
 
     # =========================================================
-    # 5. Save Growth Map (플롯 비표시)
+    # 5. Save Growth Map
     # =========================================================
     plt.figure(figsize=(10, 6))
-    plt.plot(cfg.SYNTHETIC_DI_STEPS, gen_dis_B_dense, 'b-o', linewidth=2, markersize=6, label='Synthetic DI Growth (Case A1 Trained)')
+    plt.plot(cfg.SYNTHETIC_DI_STEPS, gen_dis_B_dense, 'b-o', linewidth=2, markersize=6, label=f'Synthetic DI Growth ({case_name} Trained)')
     
     base_di = gen_dis_B_dense[0]
     plt.axhline(y=base_di, color='green', linestyle='--', alpha=0.7, label=f'Healthy Baseline (DI={base_di:.6f})')
     
-    plt.title("Structure B: Synthetic Damage Index Growth Map (0.0 ~ 1.0)", fontsize=14, fontweight='bold')
+    plt.title(f"Structure B: Synthetic Damage Index Growth Map (Trained on {case_name})", fontsize=14, fontweight='bold')
     plt.xlabel("Input Damage Factor (0.02 steps)", fontsize=12)
     plt.ylabel("Generated Kurtosis Damage Index", fontsize=12)
     plt.legend(loc='upper left', fontsize=11)
     plt.grid(True, linestyle=':', alpha=0.6)
     
-    plot_path = os.path.join(cfg.SAVE_DIR, "Synthetic_B_Growth_Map_CaseA1.png")
+    plot_path = os.path.join(cfg.SAVE_DIR, f"Synthetic_B_Growth_Map_{case_name}.png")
     plt.tight_layout()
     plt.savefig(plot_path, dpi=300)
-    plt.close()
+    plt.close('all') # 메모리 누수 방지
 
-    log_print(f"\n✅ 완료. 총 {len(cfg.SYNTHETIC_DI_STEPS)}개의 합성 데이터 파일이 {synth_dir}에 저장되었습니다.")
+    log_print(f"\n✅ {case_name} 완료. 총 {len(cfg.SYNTHETIC_DI_STEPS)}개의 합성 데이터 파일이 저장되었습니다.")
     log_file.close()
 
+    # GPU 메모리 캐시 정리
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
+
+# =========================================================
+# 실행 블록: 리스트에 정의된 Case들을 순회하며 실행
+# =========================================================
 if __name__ == "__main__":
-    main()
+    # Case A1부터 Case A8까지 정의
+    target_cases = [f"Case A{i}" for i in range(1, 9)]
+    
+    for case in target_cases:
+        run_pipeline(case)
+        
+    print("\n🎉 모든 Case(A1 ~ A8)의 자동화 처리가 완료되었습니다!")

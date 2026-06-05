@@ -35,20 +35,20 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 # ================================================================
 # 💡 'DON' 입력 시 DeepONet (51개 스텝) 파이프라인 작동
 # 💡 'NO_DON' 입력 시 수동 잔차 (11개 스텝) 파이프라인 작동
-DATA_MODE = 'DON' # 비교할 때마다 'DON' 또는 'NO_DON'으로 번갈아 수정하세요.
+DATA_MODE = 'NO_DON' # 비교할 때마다 'DON' 또는 'NO_DON'으로 번갈아 수정하세요.
 
 DIR_B_RAW = r"E:\2ndstructuredata\raw data"
 FILE_B    = "healthyclean.txt"
-SAVE_DIR  = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\Case A1\Unified_10Run_Comparison_{DATA_MODE}"
+SAVE_DIR  = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\Case A\Unified_10Run_Comparison_{DATA_MODE}"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 if DATA_MODE == 'NO_DON':
-    # [수정됨] 방금 생성한 Case A1의 수동 잔차(DeepONet 미적용) 폴더 지정
-    SYNTH_DATA_DIR = r"E:\git\benchmarktu1402-master\benchmarktu1402-master\Case A1\Synthetic_B_Data_Manual"
+    # [수정됨] 방금 생성한 Case A0의 수동 잔차(DeepONet 미적용) 폴더 지정
+    SYNTH_DATA_DIR = r"E:\2ndstructuredata\Code_37_Manual_Residual\Synthetic_B_Data"
     SYNTHETIC_DI_STEPS = np.round(np.arange(0.00, 1.01, 0.1), 2)
 else:
-    # [수정됨] 이전에 생성한 Case A1의 딥오넷(DeepONet 적용) 폴더 지정
-    SYNTH_DATA_DIR = r"E:\git\benchmarktu1402-master\benchmarktu1402-master\Case A1\Synthetic_B_Data"
+    # [수정됨] 이전에 생성한 Case A0의 딥오넷(DeepONet 적용) 폴더 지정
+    SYNTH_DATA_DIR = r"E:\2ndstructuredata\Code_9_Final_Export\Synthetic_B_Data"
     SYNTHETIC_DI_STEPS = np.round(np.arange(0.00, 1.01, 0.02), 2)
 
 WINDOW_SIZE    = 128
