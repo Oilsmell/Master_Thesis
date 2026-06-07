@@ -1,8 +1,13 @@
 # =====================================================================
 #  MASTER UNIFIED 10-RUN ENSEMBLE MLE POD PIPELINE
 #  [공용 규격] MMD-GAN (Origin 기반 10-Seed) | MemAE | 가속 MK-MMD
+#  [변경] DATA_MODE 를 직접 입력하지 않고 DON, NO_DON 두 모드를
+#         한 번 실행으로 자동 순회한다.
+#         - DON    : DeepONet 합성 데이터 (Code_9_Final_Export)
+#         - NO_DON : 수동 잔차(Manual Residual) 데이터 (Code_37_Manual_Residual)
 # =====================================================================
 
+import functools
 import os
 import pickle
 import numpy as np
@@ -21,29 +26,19 @@ from scipy.signal import hilbert
 from scipy.stats import norm
 from scipy.optimize import minimize
 import optuna
-from tqdm import tqdm
+import gc
+import traceback
+
+# 💡 모든 print 를 flush=True 로 강제 → 진행 로그 실시간 출력
+print = functools.partial(print, flush=True)
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 # ================================================================
-# [0] 파이프라인 모드 스위치 및 경로 설정
+# [0] 전역 상수 및 경로 (모드와 무관한 공용 설정)
 # ================================================================
-# 💡 'DON' 입력 시 DeepONet 합성 데이터 파이프라인 작동
-# 💡 'NO_DON' 입력 시 수동 잔차 주입 구조물 B 데이터 파이프라인 작동
-DATA_MODE = 'NO_DON'
-
 DIR_B_RAW = r"E:\2ndstructuredata\raw data"
 FILE_B    = "healthyclean.txt"
-SAVE_DIR  = f"E:\git\Master_Thesis\Finalresult\\Unified_10Run_Comparison_{DATA_MODE}"
-os.makedirs(SAVE_DIR, exist_ok=True)
-
-if DATA_MODE == 'NO_DON':
-    SYNTH_DATA_DIR = r"E:\2ndstructuredata\Code_9_Final_Export\Synthetic_B_Data"
-    SYNTHETIC_DI_STEPS = np.round(np.arange(0.00, 1.01, 0.02), 2)
-else:
-    # No-DON 구조물 A 잔차 수동 합성 폴더 경로 지정
-    SYNTH_DATA_DIR = r"E:\2ndstructuredata\Code_37_Manual_Residual\Synthetic_B_Data"
-    SYNTHETIC_DI_STEPS = np.round(np.arange(0.00, 1.01, 0.1), 2)
 
 WINDOW_SIZE    = 128
 CHANNELS       = 8
@@ -56,15 +51,28 @@ SEEDS = np.random.choice(range(100, 10000), size=N_RUNS, replace=False).tolist()
 
 x_range_r = np.linspace(0, 50, 200)
 x_range_s = np.linspace(0, 100, 200)
+COLORS = {'MMD-GAN': '#E74C3C', 'MemAE': '#3498DB', 'MK-MMD': '#2ECC71'}
 
-print("=" * 70)
-print(f" 🚀 10-RUN MASTER POD PIPELINE | MODE: {DATA_MODE} | Device: {device}")
-print("=" * 70)
+# 모드별로 execute_pipeline 안에서 채워지는 전역 변수 (run_* 함수가 참조)
+SYNTH_DATA_DIR     = None
+SYNTHETIC_DI_STEPS = None
+
+
+def free_gpu():
+    """GPU 캐시와 파이썬 가비지를 정리한다. 어디서 호출해도 안전하다."""
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+    gc.collect()
+
 
 # ================================================================
-# [1] 순수 Hit/Miss MLE POD 엔진 (로그 왜곡 자가 치유형)
+# [1] 순수 Hit/Miss MLE POD 엔진 (빈 배열 방어막 포함)
 # ================================================================
 def fit_hit_miss_mle(a_vals, dr_vals):
+    if len(a_vals) == 0 or len(dr_vals) == 0:
+        return [0, 1], False
+
     def neg_log_lik(p):
         mu, sigma = p
         prob = np.clip(norm.cdf(a_vals, loc=mu, scale=sigma), 1e-10, 1 - 1e-10)
@@ -76,7 +84,13 @@ def fit_hit_miss_mle(a_vals, dr_vals):
 
 def pod_from_runs(dr_runs, a_keys, a_vals, x_range):
     a_vals = np.asarray(a_vals, dtype=float)
+    if len(a_vals) == 0:
+        return np.zeros_like(x_range), np.zeros_like(x_range), np.nan, [0, 1], [], []
+
     avg_dr = np.array([np.mean(dr_runs[k]) for k in a_keys])
+    if len(avg_dr) == 0:
+        return np.zeros_like(x_range), np.zeros_like(x_range), np.nan, [0, 1], [], []
+
     params, ok = fit_hit_miss_mle(a_vals, avg_dr)
     mean_pod   = norm.cdf(x_range, loc=params[0], scale=params[1]) if ok else np.zeros_like(x_range)
 
@@ -91,6 +105,7 @@ def pod_from_runs(dr_runs, a_keys, a_vals, x_range):
 
 # ================================================================
 # [2] 데이터 전처리 파트 (공용 MinMaxScaler -> [-1, 1])
+#     건강 데이터는 모드와 무관 → 한 번만 로드해서 두 모드가 공유
 # ================================================================
 TRAIN_SIZE, VAL_SIZE, NUM_SAMPLES_GANAE = 1000, 500, 500
 scaler_B, Train_H, Val_H = None, None, None
@@ -129,8 +144,6 @@ def load_damage_ganae(path, is_synth=False):
         return norm_data
     except Exception:
         return None
-
-load_health_data_ganae()
 
 # ================================================================
 # [3] MMD-GAN (Origin 구조 전면 통합 및 10-Seed 적용)
@@ -235,6 +248,10 @@ def run_gan():
             d = load_damage_ganae(os.path.join(SYNTH_DATA_DIR, f"Synthetic_B_DI_{di:.2f}.txt"), is_synth=True)
             if d is not None:
                 dr_synth[di].append(float(np.mean(score(d) > thr_synth)))
+
+        # 매 run 종료 시 모델·옵티마이저·로더 해제 후 GPU 캐시 비우기 (메모리 누수 방지)
+        del gen, critic, opt_g, opt_c, loader
+        free_gpu()
     return dr_real, dr_synth
 
 # ================================================================
@@ -350,6 +367,10 @@ def run_memae():
             d = load_damage_ganae(os.path.join(SYNTH_DATA_DIR, f"Synthetic_B_DI_{di:.2f}.txt"), is_synth=True)
             if d is not None:
                 dr_synth[di].append(float(np.mean(recon_score(d) > thr_synth)))
+
+        # 매 run 종료 시 모델·옵티마이저·로더 해제 후 GPU 캐시 비우기 (메모리 누수 방지)
+        del model, opt, loader
+        free_gpu()
     return dr_real, dr_synth
 
 # ================================================================
@@ -415,10 +436,12 @@ def mmd_scores_fast(features, ref_cache, chunk, stride):
     return np.array(out)
 
 def run_svm():
+    print(f"  [MK-MMD SVM] 10-Run 가속 최적화 중...")
     dr_real, dr_synth = {c: [] for c in DAMAGE_CASES_B}, {di: [] for di in SYNTHETIC_DI_STEPS}
-    all_h_windows = [load_damage_ganae(os.path.join(DIR_B_RAW, FILE_B)) for _ in range(1)]
-    # ✅ transpose 제거: extract_features_svm는 (N, 8, 128) 형태를 기대함
-    all_h = all_h_windows[0] if all_h_windows[0] is not None else np.zeros((1, CHANNELS, WINDOW_SIZE), dtype=np.float32)
+    all_h = load_damage_ganae(os.path.join(DIR_B_RAW, FILE_B))
+    # ✅ extract_features_svm는 (N, 8, 128) 형태를 기대함
+    if all_h is None:
+        all_h = np.zeros((1, CHANNELS, WINDOW_SIZE), dtype=np.float32)
 
     feat_cache = {}
     for c in DAMAGE_CASES_B:
@@ -438,10 +461,16 @@ def run_svm():
     tr0, vl0 = sh[:si], sh[si:]
     tr0_f, vl0_f = extract_features_svm(tr0), extract_features_svm(vl0)
 
-    # 정밀 다중 구간 스케일 피팅 타겟
-    # ✅ transpose 제거: extract_features_svm는 (N, 8, 128) 형태를 기대함
-    t_l = extract_features_svm(load_damage_ganae(os.path.join(SYNTH_DATA_DIR, "Synthetic_B_DI_0.20.txt"), is_synth=True))
-    t_m = extract_features_svm(load_damage_ganae(os.path.join(SYNTH_DATA_DIR, "Synthetic_B_DI_0.50.txt"), is_synth=True))
+    # 정밀 다중 구간 스케일 피팅 타겟 (빈 데이터 방어막)
+    t_l_raw = load_damage_ganae(os.path.join(SYNTH_DATA_DIR, "Synthetic_B_DI_0.20.txt"), is_synth=True)
+    t_m_raw = load_damage_ganae(os.path.join(SYNTH_DATA_DIR, "Synthetic_B_DI_0.50.txt"), is_synth=True)
+    if t_l_raw is None or len(t_l_raw) == 0:
+        t_l_raw = np.zeros((1, CHANNELS, WINDOW_SIZE), dtype=np.float32)
+    if t_m_raw is None or len(t_m_raw) == 0:
+        t_m_raw = np.zeros((1, CHANNELS, WINDOW_SIZE), dtype=np.float32)
+
+    t_l = extract_features_svm(t_l_raw)
+    t_m = extract_features_svm(t_m_raw)
     sc0 = RobustScaler().fit(tr0_f)
     trs, vls, tgs_l, tgs_m = sc0.transform(tr0_f), sc0.transform(vl0_f), sc0.transform(t_l), sc0.transform(t_m)
 
@@ -495,33 +524,32 @@ def run_svm():
     return dr_real, dr_synth
 
 # ================================================================
-# [6] 파이프라인 연산 구동 및 가시화
+# [6] 가시화 헬퍼 (모드 무관)
 # ================================================================
-print("\n[Executing Models...]")
-gan_dr_r, gan_dr_s = run_gan()
-ae_dr_r,  ae_dr_s  = run_memae()
-svm_dr_r, svm_dr_s = run_svm()
-
 def safe_pod(dr_r, dr_s):
     kr = [k for k in DAMAGE_CASES_B if len(dr_r[k]) > 0 and not np.isnan(np.mean(dr_r[k]))]
     ks = [k for k in SYNTHETIC_DI_STEPS if len(dr_s[k]) > 0 and not np.isnan(np.mean(dr_s[k]))]
-    pr = pod_from_runs(dr_r, kr, np.array(kr, float), x_range_r)
-    ps = pod_from_runs(dr_s, ks, np.array(ks, float) * 100.0, x_range_s)
+
+    if len(kr) == 0:
+        print("  -> [경고] 유효한 Real Damage 데이터가 없습니다.")
+        pr = (np.zeros_like(x_range_r), np.zeros_like(x_range_r), np.nan, [0, 1], [], [])
+    else:
+        pr = pod_from_runs(dr_r, kr, np.array(kr, float), x_range_r)
+
+    if len(ks) == 0:
+        print("  -> [경고] 유효한 Synthetic 데이터가 없습니다.")
+        ps = (np.zeros_like(x_range_s), np.zeros_like(x_range_s), np.nan, [0, 1], [], [])
+    else:
+        ps = pod_from_runs(dr_s, ks, np.array(ks, float) * 100.0, x_range_s)
     return pr, ps
-
-gan_pr, gan_ps = safe_pod(gan_dr_r, gan_dr_s)
-ae_pr,  ae_ps  = safe_pod(ae_dr_r,  ae_dr_s)
-svm_pr, svm_ps = safe_pod(svm_dr_r, svm_dr_s)
-
-# 그림 생성 및 백그라운드 완전 클로즈
-COLORS = {'MMD-GAN': '#E74C3C', 'MemAE': '#3498DB', 'MK-MMD': '#2ECC71'}
 
 def draw_panel(ax, xr, models, title, xlabel, xlim):
     for name, (pm, pl, a90, params, a_vals, avg_dr), color in models:
         lbl = f'{name} ($a_{{90}}$={a90:.1f}%)' if not np.isnan(a90) else f'{name} (N/A)'
         ax.plot(xr, pm, color=color, lw=3, label=lbl)
         ax.plot(xr, pl, color=color, lw=1.5, ls='--', alpha=0.6)
-        ax.scatter(a_vals, avg_dr, color=color, s=22, alpha=0.5)
+        if len(a_vals) > 0 and len(avg_dr) > 0:
+            ax.scatter(a_vals, avg_dr, color=color, s=22, alpha=0.5)
     ax.axhline(0.9, color='k', ls=':', lw=1.5, label='90% Target')
     ax.set_title(title, fontweight='bold')
     ax.set_xlabel(xlabel)
@@ -531,20 +559,89 @@ def draw_panel(ax, xr, models, title, xlabel, xlim):
     ax.grid(True, ls=':')
     ax.legend(loc='lower right', fontsize=9)
 
-fig, axes = plt.subplots(1, 2, figsize=(18, 7))
-draw_panel(axes[0], x_range_r,
-           [('MMD-GAN', gan_pr, COLORS['MMD-GAN']),
-            ('MemAE', ae_pr, COLORS['MemAE']),
-            ('MK-MMD', svm_pr, COLORS['MK-MMD'])],
-           f"Real Damage Data ({DATA_MODE})", "Damage Case, $a$ (%)", 50)
-draw_panel(axes[1], x_range_s,
-           [('MMD-GAN', gan_ps, COLORS['MMD-GAN']),
-            ('MemAE', ae_ps, COLORS['MemAE']),
-            ('MK-MMD', svm_ps, COLORS['MK-MMD'])],
-           f"Synthetic Damage Data ({DATA_MODE})", "Mapped Damage, $a$ (%)", 100)
-plt.tight_layout()
-plt.savefig(os.path.join(SAVE_DIR, "Master_Ensemble_MLE_POD_Comparison.png"), dpi=300)
-plt.clf()
-plt.close('all')
+# ================================================================
+# [7] 단일 모드 실행기 (DON / NO_DON 공통 본체)
+# ================================================================
+def execute_pipeline(DATA_MODE):
+    global SYNTH_DATA_DIR, SYNTHETIC_DI_STEPS
 
-print(f"\n✅ 완료! [{DATA_MODE}] 파이프라인 결과 및 이미지 저장이 완벽히 종료되었습니다.")
+    print("\n" + "=" * 70)
+    print(f" 🚀 10-RUN MASTER POD PIPELINE | MODE: {DATA_MODE} | Device: {device}")
+
+    SAVE_DIR = rf"E:\git\Master_Thesis\Finalresult\Unified_10Run_Comparison_{DATA_MODE}"
+    os.makedirs(SAVE_DIR, exist_ok=True)
+
+    # 모드별 경로/DI 스텝 설정
+    if DATA_MODE == 'NO_DON':
+        # NO_DON: DeepONet 미사용 → 수동 잔차(Manual Residual) 주입 합성 데이터
+        SYNTH_DATA_DIR = r"E:\2ndstructuredata\Code_37_Manual_Residual\Synthetic_B_Data"
+        SYNTHETIC_DI_STEPS = np.round(np.arange(0.00, 1.01, 0.1), 2)
+    else:
+        # DON: DeepONet 기반 합성 데이터
+        SYNTH_DATA_DIR = r"E:\2ndstructuredata\Code_9_Final_Export\Synthetic_B_Data"
+        SYNTHETIC_DI_STEPS = np.round(np.arange(0.00, 1.01, 0.02), 2)
+
+    print(f"    SYNTH_DATA_DIR: {SYNTH_DATA_DIR}")
+    print("=" * 70)
+
+    # 폴더 유무 및 내부 파일 존재 여부 방어막
+    if not os.path.exists(SYNTH_DATA_DIR) or len(os.listdir(SYNTH_DATA_DIR)) == 0:
+        print(f"  -> ⏭️ [스킵] {SYNTH_DATA_DIR} 폴더가 없거나 비어있어 해당 모드를 건너뜁니다.")
+        return
+
+    try:
+        print("\n[Executing Models...]")
+        gan_dr_r, gan_dr_s = run_gan()
+        free_gpu()
+        ae_dr_r,  ae_dr_s  = run_memae()
+        free_gpu()
+        svm_dr_r, svm_dr_s = run_svm()
+
+        gan_pr, gan_ps = safe_pod(gan_dr_r, gan_dr_s)
+        ae_pr,  ae_ps  = safe_pod(ae_dr_r,  ae_dr_s)
+        svm_pr, svm_ps = safe_pod(svm_dr_r, svm_dr_s)
+
+        fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+        draw_panel(axes[0], x_range_r,
+                   [('MMD-GAN', gan_pr, COLORS['MMD-GAN']),
+                    ('MemAE', ae_pr, COLORS['MemAE']),
+                    ('MK-MMD', svm_pr, COLORS['MK-MMD'])],
+                   f"Real Damage Data ({DATA_MODE})", "Damage Case, $a$ (%)", 50)
+        draw_panel(axes[1], x_range_s,
+                   [('MMD-GAN', gan_ps, COLORS['MMD-GAN']),
+                    ('MemAE', ae_ps, COLORS['MemAE']),
+                    ('MK-MMD', svm_ps, COLORS['MK-MMD'])],
+                   f"Synthetic Damage Data ({DATA_MODE})", "Mapped Damage, $a$ (%)", 100)
+        plt.tight_layout()
+        plt.savefig(os.path.join(SAVE_DIR, "Master_Ensemble_MLE_POD_Comparison.png"), dpi=300)
+        plt.clf()
+        plt.close('all')
+
+        print(f"\n✅ 완료! [{DATA_MODE}] 파이프라인 결과 및 이미지 저장이 완벽히 종료되었습니다.")
+    finally:
+        # 성공/실패 무관하게 항상 GPU 메모리 회수 (다음 모드로 누수 누적 방지)
+        plt.close('all')
+        free_gpu()
+
+# ================================================================
+# [8] 메인: DON, NO_DON 두 모드를 한 번에 자동 순회
+# ================================================================
+if __name__ == "__main__":
+    modes_to_run = ['DON', 'NO_DON']
+    print(f"▶️ 전체 자동화 파이프라인 대기열: {modes_to_run}")
+
+    # 건강 데이터는 모드와 무관 → 한 번만 로드
+    load_health_data_ganae()
+
+    for mode in modes_to_run:
+        try:
+            execute_pipeline(mode)
+        except Exception as e:
+            # 한 모드에서 에러가 나도 전체 루프가 멈추지 않고 다음 모드로 진행
+            print(f"\n❌ [치명적 오류 발생] {mode} 실행 중 에러가 발생했습니다: {e}")
+            traceback.print_exc()
+            print("➡️ 스크립트를 멈추지 않고 다음 모드로 강제 진행합니다...\n")
+        finally:
+            free_gpu()
+
+    print("\n🏁 모든 Mode(DON, NO_DON)의 통합 평가가 완전히 종료되었습니다!")
