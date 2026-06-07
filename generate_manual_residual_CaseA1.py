@@ -1,19 +1,18 @@
 # -*- coding: utf-8 -*-
 """
 Case A1 ~ A8 수동 잔차 합성 데이터 생성 자동화 (NO DeepONet)
-- 업데이트: 파일명 자동 탐색 기능(glob) 적용. 파일 이름 앞부분이 달라도 무조건 찾아서 실행함.
+- 초강력 업데이트: 파일 이름의 접두사 상관없이 무조건 _H_ 와 _D(번호)_ 파일 탐색
 """
 
 import numpy as np
 import os
-import glob
 from sklearn.preprocessing import MinMaxScaler
 import gc
 
 def run_pipeline(case_name):
-    print(f"\n{'='*60}")
+    print(f"\n{'='*70}")
     print(f" 🚀 [NO DON] 수동 잔차 전이 시작: {case_name}")
-    print(f"{'='*60}")
+    print(f"{'='*70}")
     
     class Config:
         DIR_A = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\{case_name}"
@@ -30,26 +29,35 @@ def run_pipeline(case_name):
     if not os.path.exists(Config.SAVE_DIR): 
         os.makedirs(Config.SAVE_DIR)
 
-    # 💡 [핵심 수정] 파일 이름이 달라도 무조건 찾아내는 자동 탐색 로직
+    # 💡 [핵심] 초강력 파일 탐색 로직 (이름 상관없이 특정 패턴 포함되면 무조건 찾음)
     def load_data(is_A=False, case_num=None):
         try:
             if is_A:
+                if not os.path.exists(Config.DIR_A):
+                    print(f"  -> [오류] 폴더 자체가 존재하지 않습니다: {Config.DIR_A}")
+                    return None
+                    
+                all_files = os.listdir(Config.DIR_A)
+                path = None
+                
                 if case_num is None:
-                    # Healthy 파일 찾기 (*_H_accelerations.dat)
-                    search_pattern = os.path.join(Config.DIR_A, "*_H_accelerations.dat")
-                    files = glob.glob(search_pattern)
-                    if not files:
-                        print(f"  -> [오류] {Config.DIR_A} 경로에 Healthy 파일이 없습니다!")
-                        return None
-                    path = files[0]
+                    # Healthy 파일 탐색 (_H_ 가 포함된 .dat)
+                    for f in all_files:
+                        if "_H_" in f and f.endswith(".dat"):
+                            path = os.path.join(Config.DIR_A, f)
+                            break
                 else:
-                    # Damaged 파일 찾기 (*_D1_accelerations.dat 등)
-                    search_pattern = os.path.join(Config.DIR_A, f"*_D{case_num}_accelerations.dat")
-                    files = glob.glob(search_pattern)
-                    if not files:
-                        print(f"  -> [오류] {Config.DIR_A} 경로에 D{case_num} 손상 파일이 없습니다!")
-                        return None
-                    path = files[0]
+                    # Damaged 파일 탐색 (_D1_ 등이 포함된 .dat)
+                    for f in all_files:
+                        if f"_D{case_num}_" in f and f.endswith(".dat"):
+                            path = os.path.join(Config.DIR_A, f)
+                            break
+                
+                if path is None:
+                    target_str = "_H_" if case_num is None else f"_D{case_num}_"
+                    print(f"  -> [오류] {Config.DIR_A} 폴더 안에서 '{target_str}' 이 포함된 파일을 찾을 수 없습니다!")
+                    print(f"  -> 🔍 현재 폴더 내 실제 파일 목록: {all_files}")
+                    return None
                 
                 data = np.loadtxt(path)
                 data = data[:, Config.SELECTED_NODES].T if data.shape[0] > data.shape[1] else data[Config.SELECTED_NODES, :]
@@ -73,10 +81,10 @@ def run_pipeline(case_name):
     raw_h_B = load_data(is_A=False)
     
     if raw_h_A is None or raw_h_B is None:
-        print(f"❌ {case_name}의 핵심 데이터를 찾을 수 없어 건너뜁니다.")
+        print(f"❌ {case_name}의 핵심 데이터를 찾지 못해 건너뜁니다.")
         return
     else:
-        print(f"✅ {case_name}의 Healthy 데이터 로드 성공!")
+        print(f"✅ {case_name} Healthy 데이터 로드 성공!")
 
     reshaped_h_A, ns_A = reshape_for_scaler(raw_h_A)
     reshaped_h_B, ns_B = reshape_for_scaler(raw_h_B)
@@ -123,8 +131,14 @@ def run_pipeline(case_name):
     print(f"🎉 {case_name} 수동 잔차 데이터 생성 완료!")
     gc.collect()
 
+# =========================================================
+# 실행 블록: 리스트에 정의된 Case들을 순회하며 실행
+# =========================================================
 if __name__ == "__main__":
+    # Case A1부터 Case A8까지 정의 (1, 9는 1부터 8까지 의미함)
     target_cases = [f"Case A{i}" for i in range(1, 9)]
+    
+    print(f"▶️ 실행 대기 중인 타겟 폴더들: {target_cases}")
     
     for case in target_cases:
         run_pipeline(case)
