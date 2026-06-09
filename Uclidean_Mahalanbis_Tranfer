@@ -1,0 +1,72 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from scipy.spatial.distance import mahalanobis
+
+# 1. 데이터 생성 (2차원 원형 공간)
+np.random.seed(11)
+n_samples = 500
+
+# 2차원 공간에서는 정상 데이터가 완벽한 원형 분산(반지름이 큰 원)을 가짐
+X_2d_normal = np.random.normal(0, 3, (n_samples, 2))
+
+# 손상 데이터: 2차원 공간에서는 정상 데이터의 한복판(중심 근처)에 위치함 (구별 불가능)
+X_2d_damage = np.array([[1.5, -1.0]])
+
+# 2. 차원 확장 (물리적 특성을 반영한 3번째 차원 추가)
+# 정상 상태의 물리 법칙: X3는 X1과 X2의 선형 결합에 약간의 미세 노이즈만 더해짐
+X3_normal = 1.2 * X_2d_normal[:, 0] - 1.5 * X_2d_normal[:, 1] + np.random.normal(0, 0.3, n_samples)
+X_3d_normal = np.column_stack((X_2d_normal, X3_normal))
+
+# 손상 상태: 정상 물리 법칙이 깨짐 (X3 값이 정상적인 예측 범위를 벗어남)
+X3_damage = 1.2 * X_2d_damage[0, 0] - 1.5 * X_2d_damage[0, 1] + 4.5  # +4.5 만큼 물리 규칙이 뒤틀림
+X_3d_damage = np.column_stack((X_2d_damage, [X3_damage]))
+
+# 3. 마할라노비스 거리 계산을 위한 공분산 및 평균 추출
+cov_3d = np.cov(X_3d_normal, rowvar=False)
+mean_3d = np.mean(X_3d_normal, axis=0)
+inv_cov_3d = np.linalg.inv(cov_3d)
+
+MD_normal = [mahalanobis(row, mean_3d, inv_cov_3d) for row in X_3d_normal]
+MD_damage = mahalanobis(X_3d_damage[0], mean_3d, inv_cov_3d)
+
+# 4. 시각화 (2D 원형 vs 3D 타원체 확장 vs 마할라노비스 거리 결과)
+fig = plt.figure(figsize=(18, 5))
+
+# [Plot 1] 원래의 2D 공간 (원형 분포)
+ax1 = fig.add_subplot(1, 3, 1)
+ax1.scatter(X_2d_normal[:, 0], X_2d_normal[:, 1], color='royalblue', alpha=0.4, label='Normal Baseline')
+ax1.scatter(X_2d_damage[:, 0], X_2d_damage[:, 1], color='crimson', edgecolors='black', s=150, zorder=5, label='Damage Data')
+circle = plt.Circle((0, 0), 6, color='gray', linestyle='--', fill=False, linewidth=2, label='Euclidean Th')
+ax1.add_patch(circle)
+ax1.set_xlim(-10, 10)
+ax1.set_ylim(-10, 10)
+ax1.set_aspect('equal', adjustable='box')
+ax1.set_title('1. Original 2D Space\n(Overlapped, Circular)')
+ax1.grid(True, alpha=0.3)
+ax1.legend()
+
+# [Plot 2] 확장된 3D 공간 (타원체 형성 및 물리규칙 이탈)
+ax2 = fig.add_subplot(1, 3, 2, projection='3d')
+ax2.scatter(X_3d_normal[:, 0], X_3d_normal[:, 1], X_3d_normal[:, 2], color='royalblue', alpha=0.3)
+ax2.scatter(X_3d_damage[:, 0], X_3d_damage[:, 1], X_3d_damage[:, 2], color='crimson', edgecolors='black', s=150, zorder=5, label='Damage (Rule Broken)')
+ax2.set_xlabel('Feature X1')
+ax2.set_ylabel('Feature X2')
+ax2.set_zlabel('Added Feature X3')
+ax2.set_title('2. Extended 3D Space\n(Normals form Ellipsoid Plate)')
+ax2.view_init(elev=15, azim=45)
+
+# [Plot 3] 마할라노비스 거리 분석 결과
+ax3 = fig.add_subplot(1, 3, 3)
+ax3.boxplot(MD_normal, positions=[0], widths=0.4, patch_artist=True, boxprops=dict(facecolor='royalblue', alpha=0.6))
+ax3.scatter([0]*n_samples, MD_normal, color='royalblue', alpha=0.3, label='Normal MD')
+ax3.scatter([1], [MD_damage], color='crimson', edgecolors='black', s=150, zorder=5, label='Damage MD')
+ax3.set_xticks([0, 1])
+ax3.set_xticklabels(['Normal Baseline', 'Damage'])
+ax3.set_ylabel('Mahalanobis Distance')
+ax3.set_title('3. Distance Comparison\n(Clear Outlier Detection)')
+ax3.grid(True, alpha=0.3)
+ax3.legend()
+
+plt.tight_layout()
+plt.show()
