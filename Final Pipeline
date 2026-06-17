@@ -568,7 +568,7 @@ def execute_pipeline(DATA_MODE):
     print("\n" + "=" * 70)
     print(f" 🚀 10-RUN MASTER POD PIPELINE | MODE: {DATA_MODE} | Device: {device}")
 
-    SAVE_DIR = rf"E:\git\Master_Thesis\Finalresult\Unified_10Run_Comparison_{DATA_MODE}"
+    SAVE_DIR = rf"E:\2ndstructuredata\Unified_DeepONet\Unified_10Run_Comparison_{DATA_MODE}"
     os.makedirs(SAVE_DIR, exist_ok=True)
 
     # 모드별 경로/DI 스텝 설정
@@ -578,7 +578,7 @@ def execute_pipeline(DATA_MODE):
         SYNTHETIC_DI_STEPS = np.round(np.arange(0.00, 1.01, 0.1), 2)
     else:
         # DON: DeepONet 기반 합성 데이터
-        SYNTH_DATA_DIR = r"E:\2ndstructuredata\Code_9_Final_Export\Synthetic_B_Data"
+        SYNTH_DATA_DIR = r"E:\2ndstructuredata\Unified_DeepONet\Synthetic_B_Data"
         SYNTHETIC_DI_STEPS = np.round(np.arange(0.00, 1.01, 0.02), 2)
 
     print(f"    SYNTH_DATA_DIR: {SYNTH_DATA_DIR}")
