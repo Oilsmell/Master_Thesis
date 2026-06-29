@@ -269,14 +269,14 @@ def execute_master_pipeline(case_name, data_mode):
         # 1. 경로 세팅 동적 할당
         DIR_B_RAW = r"E:\2ndstructuredata\raw data"
         FILE_B    = "healthyclean.txt"
-        SAVE_DIR  = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\{case_name}\Unified_10Run_Comparison_{data_mode}"
+        SAVE_DIR  = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_4\{case_name}\Unified_10Run_Comparison_{data_mode}"
         os.makedirs(SAVE_DIR, exist_ok=True)
 
         if data_mode == 'NO_DON':
-            SYNTH_DATA_DIR = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\{case_name}\Synthetic_B_Data_Manual"
+            SYNTH_DATA_DIR = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_4\{case_name}\Synthetic_B_Data_Manual"
             SYNTHETIC_DI_STEPS = np.round(np.arange(0.00, 1.01, 0.1), 2)
         else:
-            SYNTH_DATA_DIR = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\{case_name}\Synthetic_B_Data"
+            SYNTH_DATA_DIR = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_4\{case_name}\Synthetic_B_Data"
             SYNTHETIC_DI_STEPS = np.round(np.arange(0.00, 1.01, 0.02), 2)
 
         # 💡 폴더 유무 및 내부 파일 존재 여부 방어막
@@ -572,8 +572,8 @@ def execute_master_pipeline(case_name, data_mode):
 # 루프 가동: 무적(Bomb-proof) Try-Except 적용
 # ================================================================
 if __name__ == "__main__":
-    cases_to_run = [f"Case A{i}" for i in range(1, 9)]
-    modes_to_run = ['DON', 'NO_DON']
+    cases_to_run = [f"Case A{i}" for i in range(0, 6)]
+    modes_to_run = ['DON']
     
     print(f"▶️ 전체 자동화 파이프라인 대기열: {cases_to_run}")
     

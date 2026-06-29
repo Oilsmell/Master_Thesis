@@ -87,7 +87,7 @@ def run_pipeline(case_name):
     
     # 해당 Case에 맞춘 동적 환경 설정
     class Config:
-        DIR_A = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\{case_name}"
+        DIR_A = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_4\{case_name}"
         SAVE_DIR = DIR_A
         DIR_B = r"E:\2ndstructuredata\raw data" 
         FILE_B_H = "healthyclean.txt"
@@ -317,7 +317,7 @@ def run_pipeline(case_name):
 # =========================================================
 if __name__ == "__main__":
     # Case A1부터 Case A8까지 정의
-    target_cases = [f"Case A{i}" for i in range(1, 9)]
+    target_cases = [f"Case A{i}" for i in range(0, 6)]
     
     for case in target_cases:
         run_pipeline(case)

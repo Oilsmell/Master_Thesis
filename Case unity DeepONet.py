@@ -29,10 +29,10 @@ from sklearn.preprocessing import MinMaxScaler
 # =========================================================
 class CFG:
     # --- A 구조 경로 ---
-    BASE_A           = r"E:\git\benchmarktu1402-master\benchmarktu1402-master"
+    BASE_A           = r"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare"
     LOCATIONS        = ["state_1", "state_4"]   # 손상 위치 2곳
     HEALTHY_LOCATION = "1st_location"                     # healthy는 여기서만 로드
-    STRUCT_IDS       = list(range(0, 9))                  # A0 ~ A8 (총 9개)
+    STRUCT_IDS       = list(range(0, 5))                  # A0 ~ A8 (총 9개)
     DAMAGE_LEVELS    = list(range(1, 11))                 # D1~D10 = 10%~100%
 
     # --- B 구조 경로 ---
