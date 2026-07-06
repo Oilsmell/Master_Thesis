@@ -317,7 +317,7 @@ def run_pipeline(case_name):
 # =========================================================
 if __name__ == "__main__":
     # Case A1부터 Case A8까지 정의
-    target_cases = [f"Case A{i}" for i in range(0, 6)]
+    target_cases = [f"Case A{i}" for i in range(3, 4)]
     
     for case in target_cases:
         run_pipeline(case)
