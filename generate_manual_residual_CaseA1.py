@@ -15,11 +15,11 @@ def run_pipeline(case_name):
     print(f"{'='*70}")
     
     class Config:
-        DIR_A = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_4\{case_name}"
+        DIR_A = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_1\{case_name}"
         DIR_B = r"E:\2ndstructuredata\raw data" 
         FILE_B_H = "healthyclean.txt"
         
-        SAVE_DIR = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_4\{case_name}\Synthetic_B_Data_Manual"
+        SAVE_DIR = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_1\{case_name}\Synthetic_B_Data_Manual"
         
         WINDOW_SIZE = 128
         CHANNELS = 8
@@ -136,7 +136,7 @@ def run_pipeline(case_name):
 # =========================================================
 if __name__ == "__main__":
     # Case A1부터 Case A8까지 정의 (1, 9는 1부터 8까지 의미함)
-    target_cases = [f"Case A{i}" for i in range(0, 8)]
+    target_cases = [f"Case A{i}" for i in range(8, 9)]
     
     print(f"▶️ 실행 대기 중인 타겟 폴더들: {target_cases}")
     

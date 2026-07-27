@@ -382,14 +382,14 @@ def execute_master_pipeline(case_name, data_mode):
         # 1. 경로 세팅
         DIR_B_RAW = r"E:\2ndstructuredata\raw data"
         FILE_B    = "healthyclean.txt"
-        SAVE_DIR  = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_1\{case_name}\Unified_10Run_Comparison_1{data_mode}"
+        SAVE_DIR  = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_4\{case_name}\Unified_10Run_Comparison_1{data_mode}"
         os.makedirs(SAVE_DIR, exist_ok=True)
 
         if data_mode == 'NO_DON':
-            SYNTH_DATA_DIR = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_1\{case_name}\Synthetic_B_Data_Manual"
+            SYNTH_DATA_DIR = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_4\{case_name}\Synthetic_B_Data_Manual"
             SYNTHETIC_DI_STEPS = np.round(np.arange(0.00, 1.01, 0.1), 2)
         else:
-            SYNTH_DATA_DIR = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_1\{case_name}\Synthetic_B_Data"
+            SYNTH_DATA_DIR = rf"E:\git\benchmarktu1402-master\benchmarktu1402-master\compare1\state_4\{case_name}\Synthetic_B_Data"
             SYNTHETIC_DI_STEPS = np.round(np.arange(0.00, 1.01, 0.02), 2)
 
         if not os.path.exists(SYNTH_DATA_DIR) or len(os.listdir(SYNTH_DATA_DIR)) == 0:
@@ -737,8 +737,8 @@ def execute_master_pipeline(case_name, data_mode):
 # 루프 가동
 # ================================================================
 if __name__ == "__main__":
-    cases_to_run = [f"Case A{i}" for i in range(0, 8)]
-    modes_to_run = ['NO_DON']
+    cases_to_run = [f"Case A{i}" for i in range(8, 9)]
+    modes_to_run = ['DON','NO_DON']
 
     print(f"▶️ 전체 자동화 파이프라인 대기열: {cases_to_run}")
 
